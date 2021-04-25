@@ -1,4 +1,5 @@
 use crate::rawdata::CriterionDataPoint;
+use crate::timeunit::TimeUnit;
 use crate::GroupName;
 use crate::IterCount;
 use crate::Measure;
@@ -14,6 +15,7 @@ struct MTPIPoint(Measure, YIndex);
 pub struct MTPIDataSet {
     //maps an x value (iteration count) to a vector of y values (time)
     points: BTreeMap<IterCount, Vec<MTPIPoint>>, // measurements
+    time_unit: Option<TimeUnit>,
 }
 
 pub struct MTPIData {
@@ -24,10 +26,24 @@ impl MTPIDataSet {
     pub fn new() -> MTPIDataSet {
         MTPIDataSet {
             points: BTreeMap::<IterCount, Vec<MTPIPoint>>::new(),
+            time_unit: None,
         }
     }
 
     pub fn insert(&mut self, datapoint: &CriterionDataPoint, y_index: YIndex) {
+        match self.time_unit {
+            None => self.time_unit = Some(datapoint.time_unit()),
+            Some(tu) => {
+                if tu != datapoint.time_unit() {
+                    panic!(
+                        "mismatched time_unit: expected: {}, actual: {}",
+                        tu,
+                        datapoint.time_unit()
+                    );
+                }
+            }
+        }
+
         //Divide the measurement by the iter_count to get the y
         // value. The x value is the iteration count itself
         let y_val: f64 = datapoint.measurement() / (datapoint.iter_count() as f64);
@@ -64,21 +80,47 @@ impl MTPIData {
         self.data.get(group)
     }
 
+    fn write_units_tsx_to_file(&self, outfile: &mut File) -> Result<(), Box<dyn Error>> {
+        writeln!(
+            outfile,
+            "const MEAN_TIME_PER_ITER_UNITS: UnitsMap = new Map<string, TimeUnit>(["
+        )?;
+        let mut data_count = 0;
+        let mut time_unit: TimeUnit;
+        for (group, mtpi_data) in &self.data {
+            match mtpi_data.time_unit {
+                None => panic!("Time unit not set on MTPI Data"),
+                Some(t) => time_unit = t,
+            }
+
+            writeln!(
+                outfile,
+                "    [\"{}\", TimeUnit.{}]",
+                group,
+                time_unit.to_string()
+            )?;
+            data_count += 1;
+            if self.data.len() > data_count + 1 {
+                writeln!(outfile, ",")?;
+            } else {
+                writeln!(outfile, "")?;
+            }
+        }
+        writeln!(outfile, "]));")?;
+        Ok(())
+    }
+
     pub fn write_tsx_to_file(&self, outfile: &mut File) -> Result<(), Box<dyn Error>> {
+        self.write_units_tsx_to_file(outfile)?;
         writeln!(outfile, "const MEAN_TIME_PER_ITER_DATA_MAP: Map<string, DataPoint[]> = new Map<string, DataPoint[]>([")?;
         let mut data_count = 0;
         for (group, mtpi_data) in &self.data {
             writeln!(outfile, "    [\"{}\", [", group)?;
             let mut i = 0;
             for (iter_count, y_values) in &mtpi_data.points {
-                write!(
-                    outfile,
-                    "        {{i:{}, x:{:.2}, ",
-                    i,
-                    (*iter_count as f64 / 1000 as f64)
-                )?;
+                write!(outfile, "        {{i:{}, x:{}, ", i, (*iter_count as f64))?;
                 for y_value in y_values {
-                    write!(outfile, "y{}: {:.2}}}", y_value.1, y_value.0)?;
+                    write!(outfile, "y{}:{}}}", y_value.1, y_value.0)?;
                     if mtpi_data.points.len() > i + 1 {
                         write!(outfile, ",")?;
                     }

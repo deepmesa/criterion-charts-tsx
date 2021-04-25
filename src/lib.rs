@@ -2,7 +2,7 @@
 extern crate serde_json;
 
 pub mod infomap;
-pub mod linreg;
+pub mod lrdata;
 pub mod mtpi;
 pub mod rawdata;
 pub mod timeunit;

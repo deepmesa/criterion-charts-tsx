@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use crate::infomap::SeriesInfoMap;
-use crate::linreg::LinRegData;
-use crate::linreg::TrendLine;
+use crate::lrdata::LinRegData;
+use crate::lrdata::LinearRegression;
 use crate::mtpi::MTPIData;
 use crate::timeunit::TimeUnit;
 use crate::FnName;
@@ -167,23 +167,24 @@ impl CriterionData {
         for (group, fndata) in &self.data {
             let mut y_index: YIndex = 0;
             for (_, cdataset) in &fndata.fn_map {
+                let mut lr = LinearRegression::new();
                 for datapoint in &cdataset.dataset {
                     linreg_data.push(group, datapoint, y_index);
+                    lr.add(datapoint.iter_count() as f64, datapoint.measurement());
                 }
-                //TODO: Create the trendline object using the least squares method
-                linreg_data.add_trendline(group, TrendLine::new(y_index));
+                linreg_data.add_trendline(group, lr.trendline(y_index));
                 y_index += 1;
             }
         }
         linreg_data
     }
 
-    pub fn to_series_info_map(&self, time_unit: TimeUnit) -> SeriesInfoMap {
+    pub fn to_series_info_map(&self) -> SeriesInfoMap {
         let mut si_map = SeriesInfoMap::new();
         for (group, fndata) in &self.data {
             let mut y_index: YIndex = 0;
             for (function, _) in &fndata.fn_map {
-                si_map.push(group, function, y_index, time_unit);
+                si_map.push(group, function, y_index);
                 y_index += 1;
             }
         }
@@ -256,7 +257,7 @@ pub mod test {
         cdata.load("./raw-1.csv".to_string()).unwrap();
         cdata.load("./raw-2.csv".to_string()).unwrap();
         let mtpi_data = cdata.to_mtpi_data();
-        let sn_map = cdata.to_series_info_map(TimeUnit::NS);
+        let sn_map = cdata.to_series_info_map();
         let mut outfile = File::create("./mtpi.tsx").unwrap();
         sn_map.write_tsx_to_file(&mut outfile).unwrap();
         mtpi_data.write_tsx_to_file(&mut outfile).unwrap();

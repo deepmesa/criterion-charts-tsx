@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use crate::timeunit::TimeUnit;
 use crate::FnName;
 use crate::GroupName;
 use crate::YIndex;
@@ -14,7 +13,6 @@ use std::io::Write;
 pub struct SeriesInfo {
     y_index: String,
     ty_index: String,
-    time_unit: TimeUnit,
 }
 
 pub struct InfoMap {
@@ -22,11 +20,10 @@ pub struct InfoMap {
 }
 
 impl SeriesInfo {
-    pub fn new(y_index: YIndex, time_unit: TimeUnit) -> SeriesInfo {
+    pub fn new(y_index: YIndex) -> SeriesInfo {
         SeriesInfo {
             y_index: format!("y{}", y_index),
             ty_index: format!("tl{}", y_index),
-            time_unit: time_unit,
         }
     }
 }
@@ -35,8 +32,8 @@ impl Display for SeriesInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{{ yIndex: \"{}\", tyIndex: \"{}\", time_unit: \"{}\" }}",
-            self.y_index, self.ty_index, self.time_unit
+            "{{ yIndex: \"{}\", tyIndex: \"{}\" }}",
+            self.y_index, self.ty_index
         )
     }
 }
@@ -48,8 +45,8 @@ impl InfoMap {
         }
     }
 
-    fn push(&mut self, group: &str, function: &str, y_index: YIndex, time_unit: TimeUnit) {
-        let s_info = SeriesInfo::new(y_index, time_unit);
+    fn push(&mut self, group: &str, function: &str, y_index: YIndex) {
+        let s_info = SeriesInfo::new(y_index);
         if let Some(fn_map) = self.info_map.get_mut(group) {
             fn_map.insert(function.to_ascii_lowercase(), s_info);
         } else {
@@ -66,7 +63,7 @@ impl InfoMap {
     ) -> Result<(), Box<dyn Error>> {
         writeln!(
             outfile,
-            "const {}: Map<string, Map<string, SeriesInfo>> = new Map<string, Map<string, SeriesInfo>>();",
+            "const {}: SeriesInfoMap = new Map<string, Map<string, SeriesInfo>>();",
             map_name
         )?;
         for (group, fn_map) in &self.info_map {
@@ -102,8 +99,8 @@ impl SeriesInfoMap {
         }
     }
 
-    pub fn push(&mut self, group: &str, function: &str, yindex: YIndex, time_unit: TimeUnit) {
-        self.imap.push(group, function, yindex, time_unit);
+    pub fn push(&mut self, group: &str, function: &str, yindex: YIndex) {
+        self.imap.push(group, function, yindex);
     }
 
     pub fn write_tsx_to_file(&self, outfile: &mut File) -> Result<(), Box<dyn Error>> {

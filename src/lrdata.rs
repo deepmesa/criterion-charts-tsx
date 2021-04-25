@@ -30,15 +30,97 @@ pub struct TrendLine {
     y_index: YIndex,
 }
 
-impl TrendLine {
-    pub fn new(y_index: YIndex) -> TrendLine {
-        TrendLine {
-            x_start: 50.5,
-            y_start: 0.36,
-            x_end: 320.0,
-            y_end: 38.2,
-            y_index: y_index,
+pub struct LinearRegression {
+    x_sum: f64,
+    y_sum: f64,
+    count: u32,
+    sn: f64,
+    sd: f64,
+    x_min: Option<f64>,
+    x_max: Option<f64>,
+    y_min: f64,
+    y_max: f64,
+}
+
+impl LinearRegression {
+    pub fn new() -> LinearRegression {
+        LinearRegression {
+            x_sum: 0.0,
+            y_sum: 0.0,
+            count: 0,
+            sn: 0.0,
+            sd: 0.0,
+            x_min: None,
+            x_max: None,
+            y_min: 0.0,
+            y_max: 0.0,
         }
+    }
+
+    pub fn add(&mut self, x: f64, y: f64) {
+        match self.x_min {
+            None => self.x_min = Some(x),
+            Some(xm) => {
+                if x < xm {
+                    self.x_min = Some(x);
+                }
+            }
+        }
+
+        match self.x_max {
+            None => self.x_max = Some(x),
+            Some(xm) => {
+                if x > xm {
+                    self.x_max = Some(x);
+                }
+            }
+        }
+        self.x_sum += x;
+        self.y_sum += y;
+        self.count += 1;
+
+        let xb = self.x_sum / self.count as f64;
+        let yb = self.y_sum / self.count as f64;
+        self.sn += (x - xb) * (y - yb);
+        self.sd += (x - xb).powi(2);
+        let slope = self.sn / self.sd;
+        let y_int = yb - (slope * xb);
+
+        self.y_min = (slope * self.x_min.unwrap()) + y_int;
+        self.y_max = (slope * self.x_max.unwrap()) + y_int;
+    }
+
+    pub fn trendline(&mut self, y_index: YIndex) -> TrendLine {
+        TrendLine::new(
+            self.x_min.unwrap(),
+            self.y_min,
+            self.x_max.unwrap(),
+            self.y_max,
+            y_index,
+        )
+    }
+}
+
+impl TrendLine {
+    pub fn new(x_start: f64, y_start: f64, x_end: f64, y_end: f64, y_index: YIndex) -> TrendLine {
+        TrendLine {
+            x_start,
+            y_start,
+            x_end,
+            y_end,
+            y_index,
+        }
+    }
+
+    pub fn set(&mut self, x_start: f64, y_start: f64, x_end: f64, y_end: f64) {
+        self.x_start = x_start;
+        self.x_end = x_end;
+        self.y_start = y_start;
+        self.y_end = y_end;
+    }
+
+    pub fn set_yindex(&mut self, y_index: YIndex) {
+        self.y_index = y_index;
     }
 
     //        { i: 200, x: 50.5, tl0: 0.36 },
@@ -71,7 +153,6 @@ impl LinRegDataSet {
             None => self.time_unit = Some(datapoint.time_unit()),
             Some(tu) => {
                 if tu != datapoint.time_unit() {
-                    //TODO: Remove the constant and do a conversion if the timeunit doesn't match
                     panic!(
                         "mismatched time_unit: expected: {}, actual: {}",
                         tu,
@@ -80,8 +161,7 @@ impl LinRegDataSet {
                 }
             }
         }
-        //TODO: Remove the hardcoded constant 1000000 and do the unit conversion
-        let y_val: f64 = datapoint.measurement() / 1000000 as f64;
+        let y_val: f64 = datapoint.measurement();
         let x_val = datapoint.iter_count();
         if let Some(points) = self.points.get_mut(&x_val) {
             points.push(LinRegPoint(y_val, y_index));
@@ -101,12 +181,12 @@ impl LinRegDataSet {
         for (iter_count, y_values) in &self.points {
             write!(
                 outfile,
-                "        {{i:{}, x:{:.2}, ",
+                "        {{i:{}, x:{}, ",
                 i,
-                (*iter_count as f64 / 1000 as f64)
+                (*iter_count as f64/*/ 1000 as f64*/)
             )?;
             for y_value in y_values {
-                write!(outfile, "y{}:{:.2}}},", y_value.1, y_value.0)?;
+                write!(outfile, "y{}:{}}},", y_value.1, y_value.0)?;
             }
             i += 1;
             writeln!(outfile)?;
@@ -154,7 +234,7 @@ impl LinRegData {
     fn write_units_tsx_to_file(&self, outfile: &mut File) -> Result<(), Box<dyn Error>> {
         writeln!(
             outfile,
-            "const LINEAR_REGRESSION_UNITS: Map<string, string> = new Map<string, string>(["
+            "const LINEAR_REGRESSION_UNITS: UnitsMap = new Map<string, TimeUnit>(["
         )?;
         let mut data_count = 0;
         let mut time_unit: TimeUnit;
@@ -166,7 +246,7 @@ impl LinRegData {
 
             writeln!(
                 outfile,
-                "    [\"{}\", \"{}\"]",
+                "    [\"{}\", TimeUnit.{}]",
                 group,
                 time_unit.to_string()
             )?;
