@@ -91,7 +91,12 @@ impl CriterionPlots {
 
 impl ToTsxFile for CriterionPlot {
     fn to_tsx_file(&self, tsxfile: &mut File) -> Result<(), Box<dyn Error>> {
-        writeln!(tsxfile, "{}", tsxcode::PLOT_COMPONENTS_TSX).unwrap();
+        writeln!(tsxfile, "{}", tsxcode::TSX_HEADER)?;
+        write!(tsxfile, "{}", tsxcode::PLOT_COMPONENTS_IMPORTS)?;
+        write!(tsxfile, ".{}", tsxcode::VERSION)?;
+        writeln!(tsxfile, "';")?;
+        writeln!(tsxfile, "{}", tsxcode::PLOT_COMPONENTS_TSX)?;
+
         if let Some(si_map) = &self.series_info_map {
             si_map.to_tsx_file(tsxfile)?;
         }
