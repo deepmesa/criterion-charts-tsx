@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use crate::infomap::SeriesInfoMap;
-use crate::lrdata::LinRegData;
-use crate::lrdata::LinearRegression;
-use crate::mtpi::MTPIData;
 use crate::timeunit::TimeUnit;
+use crate::tsxdata::MeanTimeData;
+use crate::tsxdata::TotalTimeData;
+use crate::tsxdata::TsxData;
 use crate::FnName;
 use crate::GroupName;
 use crate::IterCount;
@@ -15,12 +15,14 @@ use crate::YIndex;
 use std::error::Error;
 use std::fs::File;
 
+#[derive(Debug)]
 pub struct CriterionDataPoint {
     iter_count: IterCount,
     measurement: Measure,
     time_unit: TimeUnit,
 }
 
+/// A set of raw data points.
 pub struct CriterionDataSet {
     dataset: Vec<CriterionDataPoint>,
 }
@@ -57,6 +59,14 @@ impl CriterionDataPoint {
 
     pub fn time_unit(&self) -> TimeUnit {
         self.time_unit
+    }
+
+    pub fn as_mean_time(&self) -> CriterionDataPoint {
+        CriterionDataPoint {
+            measurement: self.measurement / (self.iter_count as f64),
+            iter_count: self.iter_count,
+            time_unit: self.time_unit,
+        }
     }
 }
 
@@ -120,6 +130,14 @@ impl CriterionData {
         }
     }
 
+    pub fn groups(&self) -> Vec<GroupName> {
+        let mut groups = Vec::<GroupName>::new();
+        for group_name in self.data.keys() {
+            groups.push(group_name.to_string());
+        }
+        groups
+    }
+
     pub fn insert(
         &mut self,
         group: GroupName,
@@ -145,54 +163,94 @@ impl CriterionData {
         self.data.get(&group.to_ascii_lowercase())
     }
 
-    pub fn to_mtpi_data(&self) -> MTPIData {
-        let mut mtpi_data = MTPIData::new();
-        for (group, fndata) in &self.data {
-            //fndata is a map of function name to data for that function
-            //iterate over all functions and aggregate the samples for
-            // each into a single vector of - i.e. an MTPIDataSet
-            let mut y_index: YIndex = 0;
-            for (_, cdataset) in &fndata.fn_map {
-                for datapoint in &cdataset.dataset {
-                    mtpi_data.push(group, datapoint, y_index);
+    pub fn to_tsx_data<T: TsxData>(
+        &self,
+        group: &str,
+        fn_map: &CriterionFnData,
+        data: &mut T,
+        mean_time: bool,
+    ) {
+        let mut y_index: YIndex = 0;
+        for (fn_name, cdataset) in &fn_map.fn_map {
+            for datapoint in &cdataset.dataset {
+                if mean_time {
+                    data.push(group, &fn_name, &datapoint.as_mean_time(), y_index);
+                } else {
+                    data.push(group, &fn_name, &datapoint, y_index);
                 }
-                y_index += 1;
             }
+            y_index += 1;
         }
-        mtpi_data
     }
 
-    pub fn to_linreg_data(&self) -> LinRegData {
-        let mut linreg_data = LinRegData::new();
-        for (group, fndata) in &self.data {
-            let mut y_index: YIndex = 0;
-            for (_, cdataset) in &fndata.fn_map {
-                let mut lr = LinearRegression::new();
-                for datapoint in &cdataset.dataset {
-                    linreg_data.push(group, datapoint, y_index);
-                    lr.add(datapoint.iter_count() as f64, datapoint.measurement());
+    pub fn mean_time_data(&self, group_name: Option<&str>) -> Option<MeanTimeData> {
+        let mut mean_time_data = MeanTimeData::new();
+        if let Some(group) = group_name {
+            let fn_data = self.data.get(group);
+            match fn_data {
+                None => return None,
+                Some(fn_data) => {
+                    self.to_tsx_data::<MeanTimeData>(&group, fn_data, &mut mean_time_data, true);
+                    return Some(mean_time_data);
                 }
-                linreg_data.add_trendline(group, lr.trendline(y_index));
-                y_index += 1;
             }
         }
-        linreg_data
+
+        for (group, fn_data) in &self.data {
+            self.to_tsx_data::<MeanTimeData>(group, fn_data, &mut mean_time_data, true);
+        }
+        Some(mean_time_data)
     }
 
-    pub fn to_series_info_map(&self) -> SeriesInfoMap {
+    pub fn total_time_data(&self, group_name: Option<&str>) -> Option<TotalTimeData> {
+        let mut total_time_data = TotalTimeData::new();
+        if let Some(group) = group_name {
+            let fn_data = self.data.get(group);
+            match fn_data {
+                None => return None,
+                Some(fn_data) => {
+                    self.to_tsx_data::<TotalTimeData>(&group, fn_data, &mut total_time_data, false);
+                    return Some(total_time_data);
+                }
+            }
+        }
+
+        for (group, fn_data) in &self.data {
+            self.to_tsx_data::<TotalTimeData>(group, fn_data, &mut total_time_data, false);
+        }
+        Some(total_time_data)
+    }
+
+    pub fn series_info_map(&self, group_name: Option<&str>) -> Option<SeriesInfoMap> {
         let mut si_map = SeriesInfoMap::new();
-        for (group, fndata) in &self.data {
-            let mut y_index: YIndex = 0;
-            for (function, _) in &fndata.fn_map {
-                si_map.push(group, function, y_index);
-                y_index += 1;
+        match group_name {
+            None => {
+                for (group, fndata) in &self.data {
+                    let mut y_index: YIndex = 0;
+                    for (function, _) in &fndata.fn_map {
+                        si_map.push(group, function, y_index);
+                        y_index += 1;
+                    }
+                }
+            }
+            Some(group_name) => {
+                let fn_data = self.data.get(group_name);
+                match fn_data {
+                    None => return None,
+                    Some(fn_data) => {
+                        let mut y_index: YIndex = 0;
+                        for (function, _) in &fn_data.fn_map {
+                            si_map.push(&group_name, function, y_index);
+                            y_index += 1;
+                        }
+                    }
+                }
             }
         }
-
-        si_map
+        Some(si_map)
     }
 
-    pub fn load(&mut self, file_path: String) -> Result<(), Box<dyn Error>> {
+    pub fn load(&mut self, file_path: &str) -> Result<(), Box<dyn Error>> {
         let file = File::open(file_path)?;
         let mut rdr = csv::ReaderBuilder::new().from_reader(file);
 
@@ -249,31 +307,5 @@ pub mod test {
         } else {
             assert!(false);
         }
-    }
-
-    #[test]
-    fn test_load() {
-        let mut cdata = CriterionData::new();
-        cdata.load("./raw-1.csv".to_string()).unwrap();
-        cdata.load("./raw-2.csv".to_string()).unwrap();
-        let mtpi_data = cdata.to_mtpi_data();
-        let sn_map = cdata.to_series_info_map();
-        let mut outfile = File::create("./mtpi.tsx").unwrap();
-        sn_map.write_tsx_to_file(&mut outfile).unwrap();
-        mtpi_data.write_tsx_to_file(&mut outfile).unwrap();
-        let mut linreg_file = File::create("./linreg.tsx").unwrap();
-        let linreg_data = cdata.to_linreg_data();
-        linreg_data.write_tsx_to_file(&mut linreg_file).unwrap();
-
-        // let mtpi_push = mtpi_data.get("push").unwrap();
-        // for (iter_count, y_values) in &mtpi_push.points {
-        //     let mut i = 0;
-        //     print!("i: {}, x: {}, : ", i, iter_count);
-        //     for y_value in y_values {
-        //         print!("y{}: {}", y_value.1, y_value.0);
-        //         i += 1;
-        //     }
-        //     println!();
-        // }
     }
 }
