@@ -1,0 +1,20 @@
+[package]
+name = "criterion-charts-tsx"
+version = "0.1.0"
+authors = ["Rahul Singh <rsingh@arrsingh.com>"]
+edition = "2018"
+description = "This crate generates a typescript file (.tsx) that contains TSX components with embedded data from a criterion benchmark to render charts using recharts."
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/deepmesa/criterion-charts-tsx"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.1.6"
+glob = "0.3.0"
+clap = "2.33.3"
+
+[[bin]]
+name="tsxgen"
